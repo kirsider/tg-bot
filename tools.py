@@ -1,33 +1,47 @@
+import apiai
+import json
 from telebot import types
-import apiai, json
-import translate
+
+import db
 import game
 import keyboards
+import translate
 
 AI_TOKEN = 'e8ad652f86584804a74a4fdf9c6804c8'
 
 
 def translate_handler(bot, message: types.Message):
-    ans = translate.translate(message.text)
-    bot.send_message(message.chat.id, ans)
+    ans = message.text + " -- " + translate.translate(message.text)
+    bot.send_message(message.chat.id, ans, reply_markup=keyboards.add_to_dict_markup)
 
 
 def game_handler(bot, game_manager: game.GameManager, message: types.Message):
-    if message.text == game_manager.words[game_manager.to_guess]:
+    if message.text == game_manager.users[message.chat.id].words[game_manager.users[message.chat.id].to_guess]:
         bot.send_message(message.chat.id, "Правильно!")
-        game_manager.counter += 1
+        game_manager.users[message.chat.id].counter += 1
     else:
         bot.send_message(message.chat.id, "Неправильно :(")
-    game_manager.to_guess = next(game_manager.game_guesses, None)
-    if game_manager.to_guess is None:
-        game_manager.is_playing = False
-        bot.send_message(message.chat.id, "Поздравляем! Вы набрали {0} из {1}!".format(
-            game_manager.counter,
-            game_manager.game_guesses_number), reply_markup=keyboards.menu_markup)
+    game_manager.users[message.chat.id].to_guess = next(game_manager.users[message.chat.id].game_guesses, None)
+    if game_manager.users[message.chat.id].to_guess is None:
+        game_manager.users[message.chat.id].is_playing = False
+        bot.send_message(message.chat.id, "Поздравляем! Вы набрали {0} из {1}!\nВернутся в меню: /menu".format(
+            game_manager.users[message.chat.id].counter,
+            game_manager.users[message.chat.id].game_guesses_number), reply_markup=types.ReplyKeyboardRemove())
+        usr = db.find_record(message.chat.id)
 
+        stats = usr['statistic']
+        slist = usr['statlist']
+        slist.append(
+            game_manager.users[message.chat.id].counter / game_manager.users[message.chat.id].game_guesses_number)
+        stats['Общий счет'] += game_manager.users[message.chat.id].counter
+        stats['Всего'] += game_manager.users[message.chat.id].game_guesses_number
+        stats['Правильность'] = str(int(round(stats['Общий счет'] / stats['Всего'], 2) * 100)) + "%"
+
+        db.delete_record(message.chat.id)
+        db.insert_record(message.chat.id, usr['username'], usr['config'], usr['dictionary'], stats, slist)
     else:
-        answers = game_manager.get_answers(game_manager.to_guess)
-        game_manager.send_options(game_manager.to_guess, answers, bot, message.chat.id)
+        answers = game_manager.get_answers(game_manager.users[message.chat.id].to_guess, message.chat.id)
+        game_manager.send_options(game_manager.users[message.chat.id].to_guess, answers, bot, message.chat.id)
 
 
 def make_markup(button_names):
